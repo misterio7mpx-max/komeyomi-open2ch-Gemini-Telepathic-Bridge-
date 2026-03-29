@@ -1,0 +1,1 @@
+# komeyomi-open2ch-Gemini-Telepathic-Bridge-
