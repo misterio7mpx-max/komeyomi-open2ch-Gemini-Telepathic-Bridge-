@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         komeyomi
+// @name         komeyomi (⚙最強下詰め・OBS WebSocketネイティブ連携版 v9)
 // @namespace    http://tampermonkey.net/
-// @version      27.00
-// @description  おーぷん2chのコメント読み上げ
+// @version      28.00
+// @description  おーぷん2chのコメント読み上げ。OBS WebSocket v5対応。テキストソースへの直接書き込みとポート設定の並び順を最適化。
 // @author       うさぎ
 // @match        https://*.open2ch.net/test/read.cgi/*
 // @grant        GM_xmlhttpRequest
@@ -16,9 +16,9 @@
     // デフォルト設定
     const DEFAULT_CONFIG = {
         engine: "bouyomi",
-        BOUYOMI_PORT: 50080,
         VOICEVOX_PORT: 50021,
         COEIROINK_PORT: 50032,
+        BOUYOMI_PORT: 50080,
         SEIKA_PORT: 7180,
         BOUYOMI_SPEAKER: 0,
         VOICEVOX_SPEAKER: 3,
@@ -33,10 +33,15 @@
         commentBg: "#f9f9f9",
         fontSize: 14,
         fontFamily: "sans-serif",
-        appendDir: "bottom", // bottom: 下詰め, top: 上詰め
-        itemGap: 8,          // コメント同士の隙間 (px)
-        itemPadding: 8,      // 枠内の余白 (px)
-        ngWords: ""
+        appendDir: "bottom",
+        itemGap: 8,
+        itemPadding: 8,
+        ngWords: "",
+        // OBS連携設定
+        useOBS: false,
+        OBS_PORT: 4455,
+        OBS_PASSWORD: "",
+        OBS_TEXT_SOURCE: ""
     };
 
     let CONFIG = { ...DEFAULT_CONFIG, ...(JSON.parse(localStorage.getItem('komeyomi_config')) || {}) };
@@ -72,7 +77,7 @@
         document.head.appendChild(style);
     }
 
-    // --- APIリクエスト ---
+    // --- APIリクエスト (話者取得) ---
     function fetchSpeakers(port, selectElement, currentVal) {
         selectElement.innerHTML = '<option value="">⏳ 取得中...</option>';
         GM_xmlhttpRequest({
@@ -111,7 +116,7 @@
                     <div class="ky-tab" data-target="ky-tab-engine" style="flex:1; text-align:center; padding:8px 0; cursor:pointer; color:#888;">接続</div>
                 </div>
 
-                <div style="padding:15px;">
+                <div style="padding:15px; max-height:450px; overflow-y:auto;">
                     <div id="ky-tab-voice" class="ky-tab-content" style="display:block;">
                         <div style="margin-bottom:10px;">
                             <label style="font-weight:bold; display:block; margin-bottom:5px;">🔊 読み上げエンジン</label>
@@ -156,7 +161,6 @@
                                 <option value="top">上詰め (一番上からポップして下に押し出し)</option>
                             </select>
                         </div>
-                        
                         <div style="display:grid; grid-template-columns:35px 1fr 45px; gap:8px; align-items:center; margin-top:12px; padding-top:12px; border-top:1px solid #eee;">
                             <span>隙間</span><input type="range" id="k_gap" min="0" max="50" step="1"><input type="number" id="v_gap" min="0" max="50" style="width:100%; padding:2px; box-sizing:border-box; text-align:right;">
                             <span>余白</span><input type="range" id="k_pad" min="0" max="50" step="1"><input type="number" id="v_pad" min="0" max="50" style="width:100%; padding:2px; box-sizing:border-box; text-align:right;">
@@ -164,13 +168,24 @@
                     </div>
 
                     <div id="ky-tab-engine" class="ky-tab-content" style="display:none;">
-                        <div style="font-weight:bold; margin-bottom:5px; border-bottom:1px solid #eee; padding-bottom:5px;">🔌 ポート番号</div>
-                        <div style="display:grid; grid-template-columns:100px 1fr; gap:5px; align-items:center;">
-                            <span>棒読みちゃん:</span><input type="number" id="k_port_bouyomi" style="width:80px; padding:2px; border:1px solid #ccc; border-radius:3px;">
+                        <div style="font-weight:bold; margin-bottom:5px; border-bottom:1px solid #eee; padding-bottom:5px;">🔌 音声ポート番号</div>
+                        <div style="display:grid; grid-template-columns:100px 1fr; gap:5px; align-items:center; margin-bottom:15px;">
                             <span>VOICEVOX:</span><input type="number" id="k_port_voicevox" style="width:80px; padding:2px; border:1px solid #ccc; border-radius:3px;">
                             <span>COEIROINK:</span><input type="number" id="k_port_coeiroink" style="width:80px; padding:2px; border:1px solid #ccc; border-radius:3px;">
+                            <span>棒読みちゃん:</span><input type="number" id="k_port_bouyomi" style="width:80px; padding:2px; border:1px solid #ccc; border-radius:3px;">
                             <span>Asst.Seika:</span><input type="number" id="k_port_seika" style="width:80px; padding:2px; border:1px solid #ccc; border-radius:3px;">
                         </div>
+                        
+                        <div style="font-weight:bold; margin-bottom:5px; border-bottom:1px solid #eee; padding-bottom:5px; display:flex; align-items:center; gap:5px;">
+                            <input type="checkbox" id="k_use_obs" style="cursor:pointer;"> <label for="k_use_obs" style="cursor:pointer;">📡 OBS WebSocket送信</label>
+                        </div>
+                        <div style="display:grid; grid-template-columns:100px 1fr; gap:5px; align-items:center;">
+                            <span>ポート:</span><input type="number" id="k_port_obs" style="width:80px; padding:2px; border:1px solid #ccc; border-radius:3px;" placeholder="4455">
+                            <span>パスワード:</span><input type="password" id="k_pass_obs" style="width:100%; padding:2px; box-sizing:border-box; border:1px solid #ccc; border-radius:3px;">
+                            <span>テキスト元:</span><input type="text" id="k_src_obs" style="width:100%; padding:2px; box-sizing:border-box; border:1px solid #ccc; border-radius:3px;" placeholder="OBSのテキストソース名">
+                        </div>
+                        <button id="btn_obs_test" style="margin-top:10px; width:100%; padding:5px; cursor:pointer; background:#f0f0f0; border:1px solid #ccc; border-radius:3px; font-weight:bold;">OBS接続テスト</button>
+                        <div style="font-size:10px; color:#888; margin-top:5px; line-height:1.3;">※OBSの「ツール」→「WebSocketサーバー設定」の情報を入力し、書き込み先のテキスト(GDI+)ソース名を指定してください。</div>
                     </div>
                 </div>
             </div>
@@ -207,7 +222,7 @@
             });
         });
 
-        // 設定のバインドと保存
+        // 音声ポート＆話者バインド
         const bindInput = (id, configKey, isInt = false) => {
             _(id).value = CONFIG[configKey];
             _(id).addEventListener('change', (e) => {
@@ -215,8 +230,7 @@
                 saveConfig();
             });
         };
-
-        ['BOUYOMI', 'VOICEVOX', 'COEIROINK', 'SEIKA'].forEach(name => bindInput(`k_port_${name.toLowerCase()}`, `${name}_PORT`, true));
+        ['VOICEVOX', 'COEIROINK', 'BOUYOMI', 'SEIKA'].forEach(name => bindInput(`k_port_${name.toLowerCase()}`, `${name}_PORT`, true));
         bindInput('k_ng_words', 'ngWords');
         
         const selectBo = _('ky_bo_spk');
@@ -224,21 +238,16 @@
             const opt = document.createElement('option'); opt.value = v.id; opt.textContent = v.name;
             if(v.id == CONFIG.BOUYOMI_SPEAKER) opt.selected = true; selectBo.appendChild(opt);
         });
-        
         bindInput('ky_bo_spk', 'BOUYOMI_SPEAKER', true);
         bindInput('ky_vv_spk', 'VOICEVOX_SPEAKER', true);
         bindInput('ky_co_spk', 'COEIROINK_SPEAKER', true);
         bindInput('ky_sk_spk', 'SEIKA_SPEAKER', true);
 
         const updateEngineView = () => {
-            ['bouyomi', 'voicevox', 'coeiroink', 'seika'].forEach(eng => {
-                _(`wrap_${eng}`).style.display = selectEngine.value === eng ? 'block' : 'none';
-            });
+            ['bouyomi', 'voicevox', 'coeiroink', 'seika'].forEach(eng => { _(`wrap_${eng}`).style.display = selectEngine.value === eng ? 'block' : 'none'; });
         };
-        selectEngine.value = CONFIG.engine;
-        updateEngineView();
+        selectEngine.value = CONFIG.engine; updateEngineView();
         selectEngine.addEventListener('change', (e) => { CONFIG.engine = e.target.value; updateEngineView(); saveConfig(); });
-
         _('btn_vv_fetch').addEventListener('click', () => fetchSpeakers(CONFIG.VOICEVOX_PORT, selectVv, CONFIG.VOICEVOX_SPEAKER));
         _('btn_co_fetch').addEventListener('click', () => fetchSpeakers(CONFIG.COEIROINK_PORT, selectCo, CONFIG.COEIROINK_SPEAKER));
 
@@ -256,90 +265,85 @@
             updateVal(CONFIG[configKeys[p]]);
             slider.addEventListener('input', (e) => updateVal(parseFloat(e.target.value)));
             numInput.addEventListener('change', (e) => updateVal(parseFloat(e.target.value)));
-            const handleWheel = (e) => { e.preventDefault(); updateVal(CONFIG[configKeys[p]] + (e.deltaY < 0 ? 0.01 : -0.01)); };
-            slider.addEventListener('wheel', handleWheel, { passive: false });
-            numInput.addEventListener('wheel', handleWheel, { passive: false });
+            slider.addEventListener('wheel', (e) => { e.preventDefault(); updateVal(CONFIG[configKeys[p]] + (e.deltaY < 0 ? 0.01 : -0.01)); }, { passive: false });
+            numInput.addEventListener('wheel', (e) => { e.preventDefault(); updateVal(CONFIG[configKeys[p]] + (e.deltaY < 0 ? 0.01 : -0.01)); }, { passive: false });
         });
 
         // 画面レイアウトの適用
         const applySidebarStyles = () => {
-            sidebar.style.background = CONFIG.sidebarBg;
-            sidebar.style.fontFamily = CONFIG.fontFamily;
-            
-            // 隙間（ギャップ）の適用
+            sidebar.style.background = CONFIG.sidebarBg; sidebar.style.fontFamily = CONFIG.fontFamily;
             scrollArea.style.gap = CONFIG.itemGap + 'px';
-            
             if (CONFIG.appendDir === 'bottom') {
-                scrollArea.style.flexDirection = 'column-reverse';
-                scrollArea.style.justifyContent = 'flex-start';
+                scrollArea.style.flexDirection = 'column-reverse'; scrollArea.style.justifyContent = 'flex-start';
                 scrollArea.style.maskImage = 'linear-gradient(to bottom, transparent 0%, black 10%, black 100%)';
                 scrollArea.style.webkitMaskImage = 'linear-gradient(to bottom, transparent 0%, black 10%, black 100%)';
             } else {
-                scrollArea.style.flexDirection = 'column';
-                scrollArea.style.justifyContent = 'flex-start';
+                scrollArea.style.flexDirection = 'column'; scrollArea.style.justifyContent = 'flex-start';
                 scrollArea.style.maskImage = 'linear-gradient(to top, transparent 0%, black 10%, black 100%)';
                 scrollArea.style.webkitMaskImage = 'linear-gradient(to top, transparent 0%, black 10%, black 100%)';
             }
-
             scrollArea.querySelectorAll('.ky-comment-item').forEach(item => {
-                item.style.background = CONFIG.commentBg;
-                item.style.fontSize = CONFIG.fontSize + 'px';
-                // 余白（パディング）の適用
-                item.style.padding = CONFIG.itemPadding + 'px';
+                item.style.background = CONFIG.commentBg; item.style.fontSize = CONFIG.fontSize + 'px'; item.style.padding = CONFIG.itemPadding + 'px';
             });
         };
 
-        // 画面・スタイル用コントロールのバインド
         ['k_sbg', 'k_cbg', 'k_fsz', 'k_fnt', 'k_dir'].forEach(id => {
             const key = id === 'k_sbg' ? 'sidebarBg' : id === 'k_cbg' ? 'commentBg' : id === 'k_fsz' ? 'fontSize' : id === 'k_fnt' ? 'fontFamily' : 'appendDir';
             _(id).value = CONFIG[key];
             _(id).addEventListener('change', (e) => { CONFIG[key] = id === 'k_fsz' ? parseInt(e.target.value) : e.target.value; saveConfig(); applySidebarStyles(); });
         });
 
-        // 新規追加：隙間・余白スライダーのバインド
-        const bindStyleSlider = (id, configKey) => {
-            const slider = _(`k_${id}`);
-            const num = _(`v_${id}`);
+        // 隙間・余白スライダー
+        ['gap', 'pad'].forEach(id => {
+            const key = id === 'gap' ? 'itemGap' : 'itemPadding';
+            const slider = _(`k_${id}`), num = _(`v_${id}`);
             const update = (val) => {
-                val = Math.max(parseFloat(slider.min), Math.min(parseFloat(slider.max), isNaN(val) ? DEFAULT_CONFIG[configKey] : val));
-                slider.value = val; num.value = val;
-                CONFIG[configKey] = val; 
-                saveConfig(); 
-                applySidebarStyles(); // スライダー操作時に即時反映
+                val = Math.max(parseFloat(slider.min), Math.min(parseFloat(slider.max), isNaN(val) ? DEFAULT_CONFIG[key] : val));
+                slider.value = val; num.value = val; CONFIG[key] = val; saveConfig(); applySidebarStyles();
             };
-            update(CONFIG[configKey]);
+            update(CONFIG[key]);
             slider.addEventListener('input', e => update(parseInt(e.target.value)));
             num.addEventListener('change', e => update(parseInt(e.target.value)));
-        };
-        bindStyleSlider('gap', 'itemGap');
-        bindStyleSlider('pad', 'itemPadding');
-
+        });
         applySidebarStyles();
 
-        // パネル開閉
+        // --- OBS設定のバインドと再接続処理 ---
+        _('k_use_obs').checked = CONFIG.useOBS;
+        _('k_use_obs').addEventListener('change', (e) => { CONFIG.useOBS = e.target.checked; saveConfig(); connectOBS(); });
+        
+        const reconnectOBS = () => { saveConfig(); if(CONFIG.useOBS) connectOBS(); };
+        _('k_port_obs').value = CONFIG.OBS_PORT;
+        _('k_port_obs').addEventListener('change', (e) => { CONFIG.OBS_PORT = parseInt(e.target.value) || 4455; reconnectOBS(); });
+        _('k_pass_obs').value = CONFIG.OBS_PASSWORD;
+        _('k_pass_obs').addEventListener('change', (e) => { CONFIG.OBS_PASSWORD = e.target.value; reconnectOBS(); });
+        _('k_src_obs').value = CONFIG.OBS_TEXT_SOURCE;
+        _('k_src_obs').addEventListener('change', (e) => { CONFIG.OBS_TEXT_SOURCE = e.target.value; saveConfig(); });
+
+        _('btn_obs_test').addEventListener('click', () => {
+            if (!CONFIG.useOBS) return alert("「OBS WebSocket送信」のチェックをオンにしてください。");
+            if (!obsWs || obsWs.readyState !== 1) return alert("OBSと未接続です。OBS側のWebSocketサーバー設定とポート、パスワードを確認してください。");
+            if (!CONFIG.OBS_TEXT_SOURCE) return alert("書き込み先の「テキストソース名」を入力してください。");
+            sendToOBS("✅ OBSテキスト連携テスト成功！");
+            alert("OBSのテキストソースへ送信しました。OBSの画面を確認してください！");
+        });
+
+        // UI表示制御
         _('komeyomi-btn').addEventListener('click', () => {
-            const isOpening = panel.style.display === 'none';
-            panel.style.display = isOpening ? 'block' : 'none';
+            const isOpening = panel.style.display === 'none'; panel.style.display = isOpening ? 'block' : 'none';
             if (isOpening) {
                 if (selectVv.options.length === 0) fetchSpeakers(CONFIG.VOICEVOX_PORT, selectVv, CONFIG.VOICEVOX_SPEAKER);
                 if (selectCo.options.length === 0) fetchSpeakers(CONFIG.COEIROINK_PORT, selectCo, CONFIG.COEIROINK_SPEAKER);
             }
         });
-
-        // TVボタン（URLコピー＆表示）
         const tvBtn = _('komeyomi-tv-btn');
         tvBtn.addEventListener('click', () => {
             const match = window.location.pathname.match(/\/test\/read\.cgi\/([^/]+)\/([^/]+)/);
-            if (match) {
-                navigator.clipboard.writeText(`${match[1]}-${match[2]}`).then(() => {
-                    const orig = tvBtn.innerText; tvBtn.innerText = "✅"; setTimeout(() => { tvBtn.innerText = orig; }, 2000);
-                });
-            }
+            if (match) { navigator.clipboard.writeText(`${match[1]}-${match[2]}`).then(() => { const orig = tvBtn.innerText; tvBtn.innerText = "✅"; setTimeout(() => { tvBtn.innerText = orig; }, 2000); }); }
             sidebar.style.display = sidebar.style.display === 'none' ? 'flex' : 'none';
             tvBtn.style.background = sidebar.style.display === 'none' ? '#fff' : '#f0f0f0';
         });
 
-        // テスト再生
+        // テスト音声
         const doTest = (eng, port, spk) => {
             const testText = "音声テストです。";
             if (eng === 'bouyomi' || eng === 'seika') sendToBouyomiOrSeika(testText, port, spk);
@@ -362,6 +366,74 @@
             sidebar.style.width = Math.max(150, Math.min(window.innerWidth - 50, startWidth - ((e.clientX - startX) * 0.5))) + 'px';
         });
         window.addEventListener('mouseup', () => { if(isResizing){ isResizing = false; document.body.style.userSelect = ''; resizer.style.background = '#e0e0e0'; } });
+    }
+
+    // --- OBS WebSocket連携ネイティブ処理 ---
+    let obsWs = null;
+    let obsReconnectTimer = null;
+
+    // OBS v5 パスワードハッシュ計算用ヘルパー
+    async function sha256Base64(str) {
+        const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+        const bytes = new Uint8Array(buf);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+        return btoa(binary);
+    }
+
+    function connectOBS() {
+        if (!CONFIG.useOBS) {
+            if (obsWs) { obsWs.close(); obsWs = null; }
+            return;
+        }
+        if (obsWs && (obsWs.readyState === 0 || obsWs.readyState === 1)) return; // 接続中または接続済み
+
+        console.log("🐰 [komeyomi] OBS WebSocketに接続しています...");
+        obsWs = new WebSocket(`ws://127.0.0.1:${CONFIG.OBS_PORT}`);
+
+        obsWs.onopen = () => console.log("🐰 [komeyomi] OBSサーバー応答。認証準備...");
+
+        obsWs.onmessage = async (e) => {
+            const msg = JSON.parse(e.data);
+            if (msg.op === 0) { // Hello (サーバー情報と認証要件)
+                let identifyParams = { rpcVersion: 1 };
+                if (msg.d.authentication) {
+                    const pass = CONFIG.OBS_PASSWORD;
+                    const salt = msg.d.authentication.salt;
+                    const chal = msg.d.authentication.challenge;
+                    const secretStr = await sha256Base64(pass + salt);
+                    identifyParams.authentication = await sha256Base64(secretStr + chal);
+                }
+                obsWs.send(JSON.stringify({ op: 1, d: identifyParams })); // Identify (認証要求送信)
+            } else if (msg.op === 2) { // Identified
+                console.log("🐰 [komeyomi] OBS 認証成功！準備完了です。");
+            }
+        };
+
+        obsWs.onclose = () => {
+            obsWs = null;
+            clearTimeout(obsReconnectTimer);
+            if (CONFIG.useOBS) {
+                console.log("🐰 [komeyomi] OBSから切断されました。5秒後に再接続します...");
+                obsReconnectTimer = setTimeout(connectOBS, 5000);
+            }
+        };
+        obsWs.onerror = () => console.log("🐰 [komeyomi] OBS接続エラー。ポート設定等を確認してください。");
+    }
+
+    function sendToOBS(text) {
+        if (!CONFIG.useOBS || !obsWs || obsWs.readyState !== 1 || !CONFIG.OBS_TEXT_SOURCE) return;
+        obsWs.send(JSON.stringify({
+            op: 6, // Request
+            d: {
+                requestType: 'SetInputSettings',
+                requestId: 'komeyomi_' + Date.now(),
+                requestData: {
+                    inputName: CONFIG.OBS_TEXT_SOURCE,
+                    inputSettings: { text: text }
+                }
+            }
+        }));
     }
 
     // --- 音声処理 ---
@@ -404,7 +476,7 @@
         msgDiv.className = 'ky-comment-item';
         msgDiv.style.background = CONFIG.commentBg;
         msgDiv.style.fontSize = CONFIG.fontSize + 'px';
-        msgDiv.style.padding = CONFIG.itemPadding + 'px'; // 設定された余白を適用
+        msgDiv.style.padding = CONFIG.itemPadding + 'px';
         msgDiv.innerText = text;
         msgDiv.style.animation = CONFIG.appendDir === 'bottom' ? 'kyPopInBottom 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) forwards' : 'kyPopInTop 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) forwards';
 
@@ -424,15 +496,18 @@
             if (ngArray.some(ng => cleanText.includes(ng))) return;
         }
         
+        // 音声読み上げ
         if (CONFIG.engine === "bouyomi") sendToBouyomiOrSeika(cleanText, CONFIG.BOUYOMI_PORT, CONFIG.BOUYOMI_SPEAKER);
         else if (CONFIG.engine === "seika") sendToBouyomiOrSeika(cleanText, CONFIG.SEIKA_PORT, CONFIG.SEIKA_SPEAKER);
         else if (CONFIG.engine === "voicevox") playVoicevoxApi(cleanText, CONFIG.VOICEVOX_PORT, CONFIG.VOICEVOX_SPEAKER);
         else if (CONFIG.engine === "coeiroink") playVoicevoxApi(cleanText, CONFIG.COEIROINK_PORT, CONFIG.COEIROINK_SPEAKER);
         
+        // 画面追加 ＆ OBS送信
         appendToSidebar(cleanText);
+        sendToOBS(cleanText);
     }
 
-    // --- DOM監視の極限最適化 ---
+    // --- DOM監視 ---
     function startObserver() {
         const observer = new MutationObserver((mutations) => {
             let latestComment = null;
@@ -458,7 +533,9 @@
         }, 1000);
     }
 
+    // 起動処理
     createUI();
     startObserver();
+    connectOBS(); // スクリプト起動時にOBS接続を開始
 
 })();
