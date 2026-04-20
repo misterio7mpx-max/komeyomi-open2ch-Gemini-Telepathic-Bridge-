@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         komeyomi (⚙最強下詰め・余白/隙間スライダー追加版 v8)
+// @name         komeyomi
 // @namespace    http://tampermonkey.net/
 // @version      27.00
-// @description  おーぷん2chのコメント読み上げ。画面タブにコメント同士の「隙間」と枠内の「余白」を調整できるスライダーを追加。
+// @description  おーぷん2chのコメント読み上げ
 // @author       うさぎ
 // @match        https://*.open2ch.net/test/read.cgi/*
 // @grant        GM_xmlhttpRequest
