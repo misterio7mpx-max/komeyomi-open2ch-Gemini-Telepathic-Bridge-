@@ -267,15 +267,37 @@
                 }
             };
 
+            // ▼ 追加: 送信ボタンとチェックボックスを縦に並べるコンテナ
+            const sendContainer = document.createElement('div');
+            sendContainer.style.cssText = `display: flex; flex-direction: column; gap: 4px; align-items: center; justify-content: center;`;
+
+            const komeCheckLabel = document.createElement('label');
+            komeCheckLabel.style.cssText = `color: #fff; font-size: 11px; display: flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap;`;
+
+            const komeCheck = document.createElement('input');
+            komeCheck.type = 'checkbox';
+            komeCheck.id = 'komeyomi-sync-kome';
+            komeCheck.checked = ConfigManager.get('syncKome') || false;
+            komeCheck.addEventListener('change', (e) => {
+                ConfigManager.set('syncKome', e.target.checked);
+            });
+
+            komeCheckLabel.appendChild(komeCheck);
+            komeCheckLabel.appendChild(document.createTextNode('komeにも送信'));
+
             const sendBtn = document.createElement('button');
             sendBtn.id = 'komeyomi-send-btn';
             sendBtn.textContent = '送信';
-            sendBtn.style.cssText = `padding: 0 20px; font-size: 16px; cursor: pointer; background: #007bff; color: #fff; border: none; border-radius: 4px; font-weight: bold; display: flex; align-items: center; justify-content: center;`;
+            sendBtn.style.cssText = `flex: 1; padding: 0 20px; font-size: 16px; cursor: pointer; background: #007bff; color: #fff; border: none; border-radius: 4px; font-weight: bold; display: flex; align-items: center; justify-content: center; width: 100%; box-sizing: border-box;`;
+
+            sendContainer.appendChild(komeCheckLabel);
+            sendContainer.appendChild(sendBtn);
+            // ▲ ここまで追加・変更
 
             toolbar.appendChild(settingsBtn);
             toolbar.appendChild(pauseBtn);
             toolbar.appendChild(inputField);
-            toolbar.appendChild(sendBtn);
+            toolbar.appendChild(sendContainer); // 送信ボタン単体の代わりにコンテナを追加
             document.body.appendChild(toolbar);
         },
 
@@ -586,6 +608,7 @@
             const inputField = document.getElementById('komeyomi-chat-input');
             const sendBtn = document.getElementById('komeyomi-send-btn');
             const userSubtitleArea = document.getElementById('komeyomi-user-subtitle-area');
+            const syncKomeCheck = document.getElementById('komeyomi-sync-kome');
 
             const handleSend = () => {
                 const text = inputField.value.trim();
@@ -597,6 +620,45 @@
                         userSubtitleArea.textContent = text;
                     }
                     AudioEngine.playUser(text.replace(/\n/g, ' '));
+
+                    // ▼ 修正: ページ空間にスクリプトを注入して完全にEnterをシミュレートする
+                    if (syncKomeCheck && syncKomeCheck.checked) {
+                        const komeInput = document.getElementById('kome');
+                        if (komeInput) {
+                            // 1. テキストをセットしてinputイベントを通知
+                            komeInput.value = text;
+                            komeInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+                            // 2. サイト側（Tampermonkeyの壁の向こう側）で直接JSを実行させる
+                            const injectScript = document.createElement('script');
+                            injectScript.textContent = `
+                                (function() {
+                                    var komeEl = document.getElementById('kome');
+                                    if (!komeEl) return;
+
+                                    // おーぷん2ちゃんねるのネイティブjQueryを使ってEnterキーイベントを発火
+                                    if (typeof $ !== 'undefined') {
+                                        var eDown = $.Event('keydown', { keyCode: 13, which: 13, key: 'Enter' });
+                                        var eUp = $.Event('keyup', { keyCode: 13, which: 13, key: 'Enter' });
+                                        $(komeEl).trigger(eDown).trigger(eUp);
+                                    } else {
+                                        // 万が一jQueryが無い場合のフォールバック
+                                        var ev = new KeyboardEvent('keydown', { keyCode: 13, which: 13, key: 'Enter', bubbles: true });
+                                        komeEl.dispatchEvent(ev);
+                                    }
+                                })();
+                            `;
+                            document.body.appendChild(injectScript);
+                            injectScript.remove(); // 用が済んだらすぐ消す（痕跡を残さない）
+
+                            // 3. 入力欄にフォーカスを戻す
+                            inputField.focus();
+                        } else {
+                            console.warn("Komeyomi: 送信先の #kome が見つかりません。");
+                        }
+                    }
+                    // ▲ ここまで
+
                     inputField.value = '';
                 }
             };
@@ -846,6 +908,7 @@
             ],
 
             enterSendReversed: false,
+            syncKome: false, // ▼ 追加: komeへ送信する設定の保存用
 
             voicevoxUrl: "http://localhost:50021",
             bouyomiUrl: "http://localhost:50080",
@@ -869,6 +932,7 @@
             posUserVert: "center",
             posUserHorz: "center"
         },
+// ... 以降の load: function() などは変更不要です
 
         load: function() {
             const saved = GM_getValue("Komeyomi_Config", null);
