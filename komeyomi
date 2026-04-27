@@ -621,41 +621,46 @@
                     }
                     AudioEngine.playUser(text.replace(/\n/g, ' '));
 
-                    // ▼ 修正: ページ空間にスクリプトを注入して完全にEnterをシミュレートする
+                    // ▼ 修正: komeform を直接 Submit（送信）する方式に変更
                     if (syncKomeCheck && syncKomeCheck.checked) {
-                        const komeInput = document.getElementById('kome');
-                        if (komeInput) {
-                            // 1. テキストをセットしてinputイベントを通知
-                            komeInput.value = text;
-                            komeInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        // サイトの空間に安全にテキストを渡すためエンコード
+                        const safeText = encodeURIComponent(text);
 
-                            // 2. サイト側（Tampermonkeyの壁の向こう側）で直接JSを実行させる
-                            const injectScript = document.createElement('script');
-                            injectScript.textContent = `
-                                (function() {
-                                    var komeEl = document.getElementById('kome');
-                                    if (!komeEl) return;
+                        const injectScript = document.createElement('script');
+                        injectScript.textContent = `
+                            (function() {
+                                var komeEl = document.getElementById('kome');
+                                var formEl = document.getElementById('komeform'); // 画像で発見したフォームID
+                                if (!komeEl) return;
 
-                                    // おーぷん2ちゃんねるのネイティブjQueryを使ってEnterキーイベントを発火
-                                    if (typeof $ !== 'undefined') {
-                                        var eDown = $.Event('keydown', { keyCode: 13, which: 13, key: 'Enter' });
-                                        var eUp = $.Event('keyup', { keyCode: 13, which: 13, key: 'Enter' });
-                                        $(komeEl).trigger(eDown).trigger(eUp);
+                                // 1. ページ空間側でテキストをセット（デコードして復元）
+                                komeEl.value = decodeURIComponent("${safeText}");
+                                komeEl.dispatchEvent(new Event('input', { bubbles: true }));
+                                komeEl.dispatchEvent(new Event('change', { bubbles: true }));
+
+                                // 2. フォームを送信（Submit）する
+                                if (typeof $ !== 'undefined') {
+                                    if (formEl) {
+                                        // jQueryを使ってフォームを送信（サイト側のイベントを発火させる）
+                                        $(formEl).submit();
                                     } else {
-                                        // 万が一jQueryが無い場合のフォールバック
-                                        var ev = new KeyboardEvent('keydown', { keyCode: 13, which: 13, key: 'Enter', bubbles: true });
-                                        komeEl.dispatchEvent(ev);
+                                        // 万が一フォームが見つからなかった場合の予備（強力なEnter）
+                                        var eDown = $.Event('keydown', { keyCode: 13, which: 13, key: 'Enter' });
+                                        $(komeEl).trigger(eDown);
                                     }
-                                })();
-                            `;
-                            document.body.appendChild(injectScript);
-                            injectScript.remove(); // 用が済んだらすぐ消す（痕跡を残さない）
+                                } else {
+                                    // jQueryが無い場合のネイティブ送信
+                                    if (formEl) {
+                                        formEl.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+                                    }
+                                }
+                            })();
+                        `;
+                        document.body.appendChild(injectScript);
+                        injectScript.remove(); // 実行後すぐに削除
 
-                            // 3. 入力欄にフォーカスを戻す
-                            inputField.focus();
-                        } else {
-                            console.warn("Komeyomi: 送信先の #kome が見つかりません。");
-                        }
+                        // 入力欄にフォーカスを戻す
+                        inputField.focus();
                     }
                     // ▲ ここまで
 
