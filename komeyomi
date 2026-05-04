@@ -179,7 +179,7 @@
             ConfigManager.applyCssVariables();
         },
 
-        pinKomediv: function() {
+       pinKomediv: function() {
             const target = document.getElementById('komediv');
             if (!target) return;
             const lockPosition = () => {
@@ -188,8 +188,8 @@
                 target.style.setProperty('left', 'auto', 'important');
                 target.style.setProperty('margin', '0', 'important');
                 target.style.setProperty('bottom', '0', 'important');
-                target.style.setProperty('right', `calc(var(--ky-sidebar-w) + 10px)`, 'important');
-                target.style.setProperty('z-index', '99998', 'important');
+                target.style.setProperty('right', `calc(var(--ky-sidebar-w) + 21px)`, 'important');
+                target.style.setProperty('z-index', '99996', 'important');
             };
             const observer = new MutationObserver(() => {
                 observer.disconnect();
